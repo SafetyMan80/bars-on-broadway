@@ -1,4 +1,27 @@
-# Bars on Broadway - automated AI lineup sync (free, via GitHub Actions).
+#name: Bars on Broadway - AI Lineup Sync
+
+on:
+  schedule:
+    - cron: '0 11 * * *' # This is 6:00 AM CST in UTC
+  workflow_dispatch: # This keeps your manual button working too
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run script
+        env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: python broadway_scraper.pyBars on Broadway - automated AI lineup sync (free, via GitHub Actions).
 # Place this file in your repo at:  .github/workflows/lineup_sync.yml
 #
 # Setup:
