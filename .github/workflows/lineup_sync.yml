@@ -1,0 +1,59 @@
+# Bars on Broadway - automated AI lineup sync (free, via GitHub Actions).
+# Place this file in your repo at:  .github/workflows/lineup_sync.yml
+#
+# Setup:
+#   1. Push broadway_scraper.py + requirements.txt to a GitHub repository.
+#   2. Repo -> Settings -> Secrets and variables -> Actions -> "New repository
+#      secret" -> add each of:
+#        WP_USERNAME         (lineup-bot)
+#        WP_APP_PASSWORD     (the WordPress Application Password)
+#        AI_API_KEY          (free Gemini key from aistudio.google.com)
+#        ALERT_WEBHOOK_URL   (optional - Slack/Discord webhook for failures)
+#   3. Done. The two scheduled runs below fire automatically, free of charge.
+
+name: Bars on Broadway - AI Lineup Sync
+
+on:
+  schedule:
+    # GitHub Actions cron runs in UTC and does NOT observe daylight saving.
+    # 6:00 AM CST = 12:00 UTC   |   5:00 PM CST = 23:00 UTC
+    # During Central Daylight Time these land at 7 AM / 6 PM local. The script
+    # auto-detects morning vs evening by Central time, so the run TYPE is always
+    # correct - only the wall-clock minute drifts by an hour seasonally.
+    - cron: '0 12 * * *'   # 06:00 AM CST  - morning sweep
+    - cron: '0 23 * * *'   # 05:00 PM CST  - evening delta
+  workflow_dispatch:        # manual "Run workflow" button in the Actions tab
+    inputs:
+      mode:
+        description: 'Run mode'
+        type: choice
+        options: [auto, morning, evening]
+        default: auto
+
+concurrency:
+  group: lineup-sync        # never let two runs overlap
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run AI lineup sync
+        env:
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: python broadway_scraper.py --mode ${{ github.event.inputs.mode || 'auto' }}
