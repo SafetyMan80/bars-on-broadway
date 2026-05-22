@@ -1,3 +1,9 @@
-google-genai
-requests
-beautifulsoup4
+requests>=2.31
+beautifulsoup4>=4.12
+python-dotenv>=1.0
+
+# Playwright renders the JavaScript-built calendars (The Stage on Broadway and
+# Legends Corner - the venues marked render_js=True in broadway_scraper.py).
+# The GitHub Actions workflow also runs `playwright install --with-deps
+# chromium` to download the headless browser binary before the script runs.
+playwright>=1.44
