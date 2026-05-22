@@ -34,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Downloads the Chromium binary Playwright needs to render the
+      # JavaScript-built calendars (The Stage on Broadway, Legends Corner).
+      - name: Install Playwright browser
+        run: playwright install --with-deps chromium
+
       - name: Run script
         env:
           WP_USERNAME: ${{ secrets.WP_USERNAME }}
