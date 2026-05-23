@@ -104,6 +104,7 @@ PURGE_MODE = os.environ.get("PURGE_MODE", "trash").lower()  # "trash" or "delete
 
 REQUEST_TIMEOUT = 30
 AI_TIMEOUT = 120          # Gemini generation is slower than a plain page fetch.
+VENUE_PAUSE_SECONDS = 5   # Pause between venues to respect the Gemini free tier.
 HTTP_RETRIES = 4
 # A real browser User-Agent: some venue hosts (e.g. Squarespace) serve a
 # stripped-down or blocked page to obvious bot User-Agents.
@@ -551,10 +552,21 @@ class LLMExtractor:
                 "responseSchema": self.SCHEMA,
             },
         }
-        resp = requests.post(
-            AI_ENDPOINT.format(model=self.model),
-            params={"key": self.api_key}, json=body, timeout=AI_TIMEOUT,
-        )
+        # Free-tier Gemini enforces a per-minute request cap. On a 429, wait
+        # for the quota window to refill, then retry before giving up.
+        resp = None
+        for attempt in range(4):
+            resp = requests.post(
+                AI_ENDPOINT.format(model=self.model),
+                params={"key": self.api_key}, json=body, timeout=AI_TIMEOUT,
+            )
+            if resp.status_code != 429:
+                break
+            if attempt < 3:
+                wait = 30 * (attempt + 1)
+                log.warning("Gemini rate limit (429) - waiting %ds, then retry %d/3.",
+                            wait, attempt + 1)
+                time.sleep(wait)
         if resp.status_code == 429:
             raise RuntimeError("Gemini rate limit (429) - free-tier quota reached.")
         if resp.status_code in (400, 403):
@@ -836,6 +848,8 @@ def scrape_all_venues() -> ScrapeResult:
         except Exception as exc:  # network / LLM / parse -- isolate it
             log.error("[%s] scrape failed: %s", cfg.venue_name, exc)
             result.errors += 1
+        # Pace venues so the free-tier Gemini per-minute quota is not blown.
+        time.sleep(VENUE_PAUSE_SECONDS)
     return result
 
 
