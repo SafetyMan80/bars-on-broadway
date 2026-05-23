@@ -103,8 +103,12 @@ DEFAULT_STAGE = "Main Stage"
 PURGE_MODE = os.environ.get("PURGE_MODE", "trash").lower()  # "trash" or "delete"
 
 REQUEST_TIMEOUT = 30
+AI_TIMEOUT = 120          # Gemini generation is slower than a plain page fetch.
 HTTP_RETRIES = 4
-USER_AGENT = "BarsOnBroadwayBot/2.0 (+https://barsonbroadway.com)"
+# A real browser User-Agent: some venue hosts (e.g. Squarespace) serve a
+# stripped-down or blocked page to obvious bot User-Agents.
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
 # Band-name corrections, matched case-insensitively against the cleaned name.
 # Seed this as you spot recurring mistakes in the logs.
@@ -452,8 +456,13 @@ def _fetch_rendered(url: str) -> str:
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
-            page = browser.new_page(user_agent=USER_AGENT)
-            page.goto(url, wait_until="networkidle", timeout=45000)
+            page = browser.new_page(user_agent=USER_AGENT,
+                                    ignore_https_errors=True)
+            # "networkidle" never settles on pages with constant background
+            # requests (ads, chat, analytics). Wait for "load", then give the
+            # calendar's JavaScript a moment to finish populating the DOM.
+            page.goto(url, wait_until="load", timeout=45000)
+            page.wait_for_timeout(4500)
             # page.content() only returns the top document. Some venues embed
             # their calendar in an <iframe> (e.g. Whiskey Row, Kane Brown's),
             # so also collect the HTML of every child frame.
@@ -544,7 +553,7 @@ class LLMExtractor:
         }
         resp = requests.post(
             AI_ENDPOINT.format(model=self.model),
-            params={"key": self.api_key}, json=body, timeout=REQUEST_TIMEOUT,
+            params={"key": self.api_key}, json=body, timeout=AI_TIMEOUT,
         )
         if resp.status_code == 429:
             raise RuntimeError("Gemini rate limit (429) - free-tier quota reached.")
@@ -719,7 +728,7 @@ VENUES: list[VenueConfig] = [
     VenueConfig("Ole Red Nashville",
                 "https://olered.com/nashville/"),
     VenueConfig("Jason Aldean's Kitchen + Rooftop Bar",
-                "https://jasonaldeansbar.com/music/"),
+                "https://jasonaldeansbar.com/nashville/music/"),
     VenueConfig("Margaritaville Nashville",
                 "https://www.margaritavillenashville.com/calendar"),
     VenueConfig("Bootleggers Inn",
