@@ -454,7 +454,18 @@ def _fetch_rendered(url: str) -> str:
         try:
             page = browser.new_page(user_agent=USER_AGENT)
             page.goto(url, wait_until="networkidle", timeout=45000)
-            return page.content()
+            # page.content() only returns the top document. Some venues embed
+            # their calendar in an <iframe> (e.g. Whiskey Row, Kane Brown's),
+            # so also collect the HTML of every child frame.
+            parts = [page.content()]
+            for frame in page.frames:
+                if frame is page.main_frame:
+                    continue
+                try:
+                    parts.append(frame.content())
+                except Exception:
+                    pass
+            return "\n".join(parts)
         finally:
             browser.close()
 
@@ -688,13 +699,90 @@ class VenueConfig:
 
 
 VENUES: list[VenueConfig] = [
-    VenueConfig("Tootsie's Orchid Lounge"),            # TODO calendar_url
-    VenueConfig("Ole Red Nashville"),                  # TODO calendar_url
-    VenueConfig("Jason Aldean's Kitchen + Rooftop"),   # TODO calendar_url
-    VenueConfig("Luke's 32 Bridge"),                   # TODO calendar_url
-    VenueConfig("Honky Tonk Central"),                 # TODO calendar_url
-    VenueConfig("Dierks Bentley's Whiskey Row"),       # TODO calendar_url
+    # -------------------------------------------------------------------------
+    # ACTIVE VENUES - every URL below was loaded and verified to publish a
+    # real, dated lineup (verified May 2026). One bad scrape never stops the
+    # run: scrape_all_venues() isolates every venue in its own try/except.
+    # -------------------------------------------------------------------------
+
+    # --- TIER 1: static HTML calendars (plain requests fetch + LLM) ----------
+    VenueConfig("Acme Feed & Seed",
+                "https://www.acmefeedandseed.com/calendar"),
+    VenueConfig("Miranda Lambert's Casa Rosa",
+                "https://casarosanashville.com/music/"),
+    VenueConfig("Luke's 32 Bridge",
+                "https://lukes32bridge.com/live-music/"),
+    VenueConfig("The Redneck Riviera",
+                "https://redneckrivieranashville.com/events/"),
+    # Ole Red's /nashville/ home page carries a fresh "What's Happenin' Today"
+    # lineup; the /live-music/ sub-page is more heavily cached.
+    VenueConfig("Ole Red Nashville",
+                "https://olered.com/nashville/"),
+    VenueConfig("Jason Aldean's Kitchen + Rooftop Bar",
+                "https://jasonaldeansbar.com/music/"),
+    VenueConfig("Margaritaville Nashville",
+                "https://www.margaritavillenashville.com/calendar"),
+    VenueConfig("Bootleggers Inn",
+                "https://www.bootleggersnashville.com/live-on-stage"),
+    VenueConfig("Doc Holliday's Saloon",
+                "https://www.dochollidaysnashville.com/live-music"),
+    VenueConfig("Skull's Rainbow Room",
+                "https://www.skullsrainbowroom.com/jazz"),
+    VenueConfig("Sinatra Bar & Lounge",
+                "https://www.sinatranashville.com/entertainment"),
+
+    # --- TIER 2: JavaScript-rendered calendars (render_js=True -> Playwright) -
+    # The lineup is NOT in the raw HTML; the GitHub Actions workflow installs a
+    # headless browser. _fetch_rendered() also captures <iframe> content, which
+    # Whiskey Row and Kane Brown's need (their calendars are embedded iframes).
+    VenueConfig("The Stage on Broadway",
+                "https://thestageonbroadway.com/calendar/",
+                render_js=True),
+    VenueConfig("Legends Corner",
+                "https://www.legendscorner.com/viewcalendar",
+                render_js=True),
+    VenueConfig("Dierks Bentley's Whiskey Row",
+                "https://dierkswhiskeyrow.com/nashville-tn/upcoming-events/",
+                render_js=True),
+    VenueConfig("Friends in Low Places",
+                "https://friendsbarnashville.com/events",
+                render_js=True),
+    VenueConfig("Lucky Bastard Saloon",
+                "https://www.luckybastardsaloon.com/live-bands",
+                render_js=True),
+    VenueConfig("Kane Brown's On Broadway",
+                "https://kanebrownsonbroadway.com/live-music/",
+                render_js=True),
+    VenueConfig("Whiskey Bent Saloon",
+                "https://www.whiskeybentsaloon.com/live-on-stage",
+                render_js=True),
+    VenueConfig("Barstool Nashville",
+                "https://www.barstoolnashville.com/events",
+                render_js=True),
+    VenueConfig("The Lounge @2nd",
+                "https://theloungeat2nd.com/nashville-downtown-the-lounge-at-2nd-music-calendar",
+                render_js=True),
+    VenueConfig("Bourbon Street Blues and Boogie Bar",
+                "https://www.bourbonstreetbluesandboogiebar.com/schedule",
+                render_js=True),
 ]
+
+# -----------------------------------------------------------------------------
+# NOT SCRAPED - these venues are open and belong on the website's directory
+# (with their address and live-music tagline), but publish no machine-readable
+# lineup anywhere, so there is nothing for the scraper to fetch. Verified
+# May 2026 by loading each site:
+#
+#   Tootsie's Orchid Lounge, Robert's Western World, Honky Tonk Central,
+#   Kid Rock's Big Honky Tonk, AJ's Good Time Bar, Layla's Honky Tonk,
+#   The Second Fiddle, Nudie's Honky Tonk, Rippy's Bar & Grill,
+#   Pete's Dueling Piano Bar, PBR Nashville, The Spot by Dre and Snoop,
+#   Big Jimmy's, Alley Taps, Lonnie's Western Room, Blueprint Underground.
+#
+# CLOSED - excluded from the website entirely:
+#   FGL House, Crazytown, The George Jones, Wildhorse Saloon,
+#   B.B. King's Blues Club, Famous Saloon.
+# -----------------------------------------------------------------------------
 
 
 def adapter_for(cfg: VenueConfig) -> VenueAdapter:
