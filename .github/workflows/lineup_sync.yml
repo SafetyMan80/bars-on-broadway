@@ -7,7 +7,7 @@
 #   AI_API_KEY        - free Gemini API key from aistudio.google.com
 #
 # GitHub Actions cron runs in UTC and does NOT observe daylight saving.
-# 0 11 UTC = 6:00 AM Central and 0 22 UTC = 5:00 PM Central while Central
+# 0 15 UTC = 10:00 AM Central and 0 21 UTC = 4:00 PM Central while Central
 # Daylight Time is in effect; both shift one hour earlier under standard time.
 # The script auto-detects morning vs evening from Central time, so the run
 # TYPE is always correct - only the wall-clock minute drifts seasonally.
@@ -16,8 +16,8 @@ name: Bars on Broadway - AI Lineup Sync
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # ~6:00 AM Central - morning sweep
-    - cron: '0 22 * * *'   # ~5:00 PM Central - evening delta
+    - cron: '0 15 * * *'   # ~10:00 AM Central - morning sweep
+    - cron: '0 21 * * *'   # ~4:00 PM Central - evening delta
   workflow_dispatch:        # manual "Run workflow" button in the Actions tab
 
 jobs:
