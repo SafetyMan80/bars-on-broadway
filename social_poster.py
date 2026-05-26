@@ -28,6 +28,7 @@ import html
 import math
 import os
 import random
+import re
 import subprocess
 import sys
 import time
@@ -73,14 +74,36 @@ FB_PAGE_ID = os.environ.get("META_FB_PAGE_ID")
 # ---------------------------------------------------------------------------
 
 
-def fetch_lineup() -> dict[str, list[str]]:
-    """Return {venue_name: [band_names]} from the live_lineup CPT."""
-    by_venue: dict[str, list[str]] = defaultdict(list)
+# Match slug format: {venue-slug}-{YYYY}-{MM}-{DD}-{HH}-{MM}-{stage}
+_SHOW_DATE_RE = re.compile(r"-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-")
+
+
+def _parse_show_datetime(slug: str) -> _dt.datetime | None:
+    m = _SHOW_DATE_RE.search(slug or "")
+    if not m:
+        return None
+    try:
+        return _dt.datetime(
+            int(m.group(1)), int(m.group(2)), int(m.group(3)),
+            int(m.group(4)), int(m.group(5)),
+        )
+    except ValueError:
+        return None
+
+
+def fetch_lineup(target_date: _dt.date) -> dict[str, list[str]]:
+    """Return {venue_name: [band_names]} for shows happening on target_date.
+
+    Reads slug to extract show date (slug format includes YYYY-MM-DD-HH-MM).
+    Bands are ordered by show time within each venue.
+    """
+    # collect (venue, band, show_time) then group by venue
+    shows: list[tuple[str, str, _dt.datetime]] = []
     page = 1
     while True:
         r = requests.get(
             f"{WP_BASE}/live_lineup",
-            params={"per_page": 100, "page": page, "_fields": "id,title"},
+            params={"per_page": 100, "page": page, "_fields": "id,title,slug"},
             timeout=30,
         )
         if r.status_code != 200:
@@ -90,19 +113,30 @@ def fetch_lineup() -> dict[str, list[str]]:
         if not batch:
             break
         for post in batch:
-            # WP REST returns HTML-encoded titles (&#8211; for –, etc.)
+            slug = post.get("slug", "")
+            show_dt = _parse_show_datetime(slug)
+            if not show_dt or show_dt.date() != target_date:
+                continue
+            # WP REST returns HTML-encoded titles
             title = html.unescape(post["title"]["rendered"]).strip()
             for sep in (" - ", " – ", " — "):
                 if sep in title:
                     band, venue = title.rsplit(sep, 1)
                     band = band.strip()
                     venue = venue.strip()
-                    if band and venue and band not in by_venue[venue]:
-                        by_venue[venue].append(band)
+                    if band and venue:
+                        shows.append((venue, band, show_dt))
                     break
         if len(batch) < 100:
             break
         page += 1
+
+    # group by venue, sort each venue by show time, dedupe band names
+    by_venue: dict[str, list[str]] = defaultdict(list)
+    shows.sort(key=lambda x: x[2])
+    for venue, band, _ in shows:
+        if band not in by_venue[venue]:
+            by_venue[venue].append(band)
     return dict(by_venue)
 
 
@@ -505,7 +539,12 @@ def post_to_facebook_page(image_url: str, caption: str) -> str | None:
     print(f"Posting to FB Page {FB_PAGE_ID} ...")
     r = requests.post(
         f"{GRAPH_API}/{FB_PAGE_ID}/photos",
-        data={"url": image_url, "caption": caption, "access_token": TOKEN},
+        data={
+            "url": image_url,
+            "caption": caption,
+            "access_token": TOKEN,
+            "published": "true",  # publish immediately to the Page feed
+        },
         timeout=60,
     )
     j = r.json()
@@ -522,13 +561,16 @@ def post_to_facebook_page(image_url: str, caption: str) -> str | None:
 
 
 def main() -> None:
-    print("Fetching lineup from barsonbroadway.com ...")
-    by_venue = fetch_lineup()
+    today = _dt.date.today()
+    print(f"Fetching lineup for {today.isoformat()} from barsonbroadway.com ...")
+    by_venue = fetch_lineup(today)
     if not by_venue:
-        print("No lineup data found; aborting without posting.")
+        print(f"No lineup data found for {today.isoformat()}; aborting without posting.")
         return
     band_count = sum(len(b) for b in by_venue.values())
-    print(f"Loaded {band_count} bands across {len(by_venue)} venues.")
+    print(f"Loaded {band_count} bands across {len(by_venue)} venues for tonight.")
+    for venue, bands in by_venue.items():
+        print(f"  {venue}: {', '.join(bands)}")
 
     today_iso = _dt.date.today().isoformat()
     image_path = IMAGES_DIR / f"{today_iso}.jpg"
