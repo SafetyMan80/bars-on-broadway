@@ -506,6 +506,36 @@ def commit_and_push(image_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def wait_for_raw_image(image_url: str, max_wait: int = 180) -> bool:
+    """Poll the raw URL until GitHub serves it as a real image.
+
+    Meta's media fetcher (IG + FB Pages) rejects URLs that 404 or that return
+    a non-image Content-Type, and raw.githubusercontent.com can lag a fresh
+    commit by 30-90s while the CDN warms. We HEAD the URL with exponential
+    backoff and only return True once status==200 and content-type starts with
+    'image/'. Returns False if the deadline passes; caller decides whether to
+    attempt the post anyway.
+    """
+    deadline = time.time() + max_wait
+    delay = 5
+    last_err = None
+    while time.time() < deadline:
+        try:
+            r = requests.head(image_url, timeout=15, allow_redirects=True)
+            ct = r.headers.get("Content-Type", "")
+            if r.status_code == 200 and ct.lower().startswith("image/"):
+                print(f"Raw URL ready ({ct}, {r.headers.get('Content-Length','?')} bytes): {image_url}")
+                return True
+            last_err = f"status={r.status_code} content-type={ct!r}"
+        except Exception as e:
+            last_err = repr(e)
+        print(f"  raw not ready yet ({last_err}); sleeping {delay}s")
+        time.sleep(delay)
+        delay = min(int(delay * 1.6), 30)
+    print(f"WARNING: raw URL never confirmed image/* within {max_wait}s ({last_err})")
+    return False
+
+
 def post_to_instagram(image_url: str, caption: str) -> str:
     print(f"Creating IG media container from: {image_url}")
     r1 = requests.post(
@@ -578,9 +608,14 @@ def main() -> None:
     print(f"Image generated: {image_path}")
 
     commit_and_push(image_path)
-    time.sleep(20)
 
-    image_url = f"{RAW_BASE}/{image_path.as_posix()}?t={int(time.time())}"
+    # NOTE: Meta's Graph API media fetcher (error 2207052) is finicky about
+    # query parameters - the previous "?t=<timestamp>" cache buster caused
+    # every post to fail. Use a clean URL and poll until raw.githubusercontent
+    # actually serves the file as image/jpeg before calling Meta.
+    image_url = f"{RAW_BASE}/{image_path.as_posix()}"
+    wait_for_raw_image(image_url, max_wait=180)
+
     caption = build_caption(by_venue)
     print("\nCaption preview:\n" + caption + "\n")
 
