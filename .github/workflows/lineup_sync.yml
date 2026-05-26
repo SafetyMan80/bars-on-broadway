@@ -47,6 +47,7 @@ jobs:
         run: playwright install --with-deps chromium
 
       - name: Run scraper
+        continue-on-error: true
         env:
           WP_USERNAME: ${{ secrets.WP_USERNAME }}
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
