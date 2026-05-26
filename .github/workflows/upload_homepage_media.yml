@@ -1,0 +1,94 @@
+# One-shot workflow: uploads the 4 homepage-promo media files to WordPress
+# via the REST API using existing WP_USERNAME + WP_APP_PASSWORD secrets.
+#
+# How to use:
+# 1. Commit this file to: .github/workflows/upload_homepage_media.yml
+# 2. Commit the 4 video/poster files to: homepage_assets/
+#       homepage_assets/bob_hero_promo.mp4              (desktop, 1.0 MB)
+#       homepage_assets/bob_hero_promo_mobile.mp4       (mobile,  440 KB)
+#       homepage_assets/bob_hero_promo_poster.jpg       (desktop poster)
+#       homepage_assets/bob_hero_promo_poster_mobile.jpg (mobile poster)
+# 3. Go to Actions tab -> "Upload Homepage Media to WordPress" -> Run workflow
+# 4. When it finishes, expand the "Upload media" step. The log will print 4 URLs.
+#    Copy those 4 URLs into the placeholders in homepage_video_embed.html.
+
+name: Upload Homepage Media to WordPress
+
+on:
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Upload media
+        env:
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: |
+          python <<'PYEOF'
+          import os, sys, mimetypes
+          from pathlib import Path
+          import requests
+          from requests.auth import HTTPBasicAuth
+
+          WP_BASE = "https://barsonbroadway.com/wp-json/wp/v2"
+          USER = os.environ["WP_USERNAME"]
+          APP_PW = os.environ["WP_APP_PASSWORD"]
+          auth = HTTPBasicAuth(USER, APP_PW)
+
+          files = [
+              "homepage_assets/bob_hero_promo.mp4",
+              "homepage_assets/bob_hero_promo_mobile.mp4",
+              "homepage_assets/bob_hero_promo_poster.jpg",
+              "homepage_assets/bob_hero_promo_poster_mobile.jpg",
+          ]
+
+          # Sanity-check: do all 4 files exist?
+          missing = [f for f in files if not Path(f).exists()]
+          if missing:
+              print("ERROR: missing files in repo:", missing)
+              sys.exit(1)
+
+          print("\n=== UPLOAD RESULTS ===\n")
+          results = {}
+          for path in files:
+              fname = Path(path).name
+              mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+              with open(path, "rb") as fh:
+                  data = fh.read()
+              print(f"Uploading {fname} ({len(data)//1024} KB, {mime}) ...")
+              r = requests.post(
+                  f"{WP_BASE}/media",
+                  headers={
+                      "Content-Type": mime,
+                      "Content-Disposition": f'attachment; filename="{fname}"',
+                  },
+                  data=data,
+                  auth=auth,
+                  timeout=120,
+              )
+              if r.status_code not in (200, 201):
+                  print(f"  FAILED status={r.status_code}: {r.text[:500]}")
+                  # Don't abort — print what we have, let user retry individual files
+                  results[fname] = f"FAILED ({r.status_code})"
+                  continue
+              j = r.json()
+              url = j.get("source_url") or j.get("guid", {}).get("rendered", "?")
+              results[fname] = url
+              print(f"  -> {url}")
+
+          print("\n=== PASTE THESE 4 URLs INTO homepage_video_embed.html ===\n")
+          for fname, url in results.items():
+              print(f"{fname}:\n  {url}\n")
+          PYEOF
