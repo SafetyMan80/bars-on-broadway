@@ -11,8 +11,9 @@ Required environment variables:
     META_PAGE_ACCESS_TOKEN     Long-lived Facebook Page Access Token
 
 Optional:
-    META_FB_PAGE_ID            Facebook Page ID (used in a later phase
-                               when pages_manage_posts is added)
+    META_FB_PAGE_ID            Facebook Page ID. If set, the same image and
+                               caption is also posted to the FB Page (requires
+                               pages_manage_posts scope on the token).
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ BODY = (201, 194, 214)   # #C9C2D6
 
 IG_USER_ID = os.environ["META_IG_USER_ID"]
 TOKEN = os.environ["META_PAGE_ACCESS_TOKEN"]
+FB_PAGE_ID = os.environ.get("META_FB_PAGE_ID")  # optional; if set, also posts to FB Page
 
 # ---------------------------------------------------------------------------
 # Lineup fetch
@@ -259,6 +261,29 @@ def post_to_instagram(image_url: str, caption: str) -> str:
     return j2["id"]
 
 
+def post_to_facebook_page(image_url: str, caption: str) -> str | None:
+    """Post the same image+caption to the FB Page if FB_PAGE_ID is set."""
+    if not FB_PAGE_ID:
+        print("META_FB_PAGE_ID not set; skipping FB Page post.")
+        return None
+    print(f"Posting to FB Page {FB_PAGE_ID} ...")
+    r = requests.post(
+        f"{GRAPH_API}/{FB_PAGE_ID}/photos",
+        data={
+            "url": image_url,
+            "caption": caption,
+            "access_token": TOKEN,
+        },
+        timeout=60,
+    )
+    j = r.json()
+    print(f"FB Page response: {j}")
+    if "id" in j or "post_id" in j:
+        return j.get("post_id") or j.get("id")
+    print("FB Page post failed; continuing anyway.")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -288,6 +313,10 @@ def main() -> None:
 
     media_id = post_to_instagram(image_url, caption)
     print(f"Posted to Instagram: media id {media_id}")
+
+    fb_id = post_to_facebook_page(image_url, caption)
+    if fb_id:
+        print(f"Posted to Facebook Page: {fb_id}")
 
 
 if __name__ == "__main__":
