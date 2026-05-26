@@ -24,6 +24,7 @@ Optional photo backgrounds:
 from __future__ import annotations
 
 import datetime as _dt
+import html
 import math
 import os
 import random
@@ -89,7 +90,8 @@ def fetch_lineup() -> dict[str, list[str]]:
         if not batch:
             break
         for post in batch:
-            title = post["title"]["rendered"].strip()
+            # WP REST returns HTML-encoded titles (&#8211; for –, etc.)
+            title = html.unescape(post["title"]["rendered"]).strip()
             for sep in (" - ", " – ", " — "):
                 if sep in title:
                     band, venue = title.rsplit(sep, 1)
