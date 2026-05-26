@@ -1,10 +1,12 @@
 # Bars on Broadway - automated AI lineup sync (free, via GitHub Actions).
-# Lives at:  .github/workflows/lineup_sync.yml
+# Lives at: .github/workflows/lineup_sync.yml
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   WP_USERNAME       - the WordPress scraper user (e.g. lineup-bot)
-#   WP_APP_PASSWORD   - that user's WordPress Application Password
-#   AI_API_KEY        - free Gemini API key from aistudio.google.com
+#   WP_USERNAME              - the WordPress scraper user (e.g. lineup-bot)
+#   WP_APP_PASSWORD          - that user's WordPress Application Password
+#   AI_API_KEY               - free Gemini API key from aistudio.google.com
+#   META_IG_USER_ID          - Instagram Business Account ID
+#   META_PAGE_ACCESS_TOKEN   - long-lived Page Access Token from Meta Graph API
 #
 # GitHub Actions cron runs in UTC and does NOT observe daylight saving.
 # 0 15 UTC = 10:00 AM Central and 0 21 UTC = 4:00 PM Central while Central
@@ -20,6 +22,9 @@ on:
     - cron: '0 21 * * *'   # ~4:00 PM Central - evening delta
   workflow_dispatch:        # manual "Run workflow" button in the Actions tab
 
+permissions:
+  contents: write           # so the daily-post step can commit the generated image
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,16 +37,27 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install Pillow
 
       # Downloads the Chromium binary Playwright needs to render the
       # JavaScript-built calendars (The Stage on Broadway, Legends Corner).
       - name: Install Playwright browser
         run: playwright install --with-deps chromium
 
-      - name: Run script
+      - name: Run scraper
         env:
           WP_USERNAME: ${{ secrets.WP_USERNAME }}
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
         run: python broadway_scraper.py
+
+      # Only on the 10am Central run (or manual trigger). The 4pm run skips
+      # this so we never post twice in one day.
+      - name: Daily Instagram post
+        if: github.event.schedule == '0 15 * * *' || github.event_name == 'workflow_dispatch'
+        env:
+          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
+          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+        run: python social_poster.py
