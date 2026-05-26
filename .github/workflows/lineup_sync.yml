@@ -41,11 +41,24 @@ jobs:
           pip install -r requirements.txt
           pip install Pillow
 
+      # Post FIRST (uses current data on the WP site, doesn't depend on
+      # this run's scraper). Runs only on the 10am Central run or manual
+      # trigger. The 4pm run skips posting so we never post twice in one day.
+      - name: Daily Instagram + FB post
+        if: github.event.schedule == '0 15 * * *' || github.event_name == 'workflow_dispatch'
+        env:
+          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
+          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+          META_FB_PAGE_ID: ${{ secrets.META_FB_PAGE_ID }}
+        run: python social_poster.py
+
       # Downloads the Chromium binary Playwright needs to render the
       # JavaScript-built calendars (The Stage on Broadway, Legends Corner).
       - name: Install Playwright browser
         run: playwright install --with-deps chromium
 
+      # Scraper runs LAST so it refreshes data for tomorrow. If it fails or
+      # hangs, today's post has already gone out.
       - name: Run scraper
         continue-on-error: true
         env:
@@ -53,12 +66,3 @@ jobs:
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
         run: python broadway_scraper.py
-
-      # Only on the 10am Central run (or manual trigger). The 4pm run skips
-      # this so we never post twice in one day.
-      - name: Daily Instagram post
-        if: github.event.schedule == '0 15 * * *' || github.event_name == 'workflow_dispatch'
-        env:
-          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
-          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
-        run: python social_poster.py
