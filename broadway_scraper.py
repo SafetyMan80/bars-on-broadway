@@ -823,6 +823,7 @@ class ScrapeResult:
     shifts: list[PerformanceShift] = field(default_factory=list)
     errors: int = 0
     layout_warnings: int = 0
+    successful_venues: set[str] = field(default_factory=set)
 
 
 def scrape_all_venues() -> ScrapeResult:
@@ -840,6 +841,7 @@ def scrape_all_venues() -> ScrapeResult:
                 result.layout_warnings += 1
             else:
                 log.info("[%s] %d valid shift(s).", cfg.venue_name, len(shifts))
+                result.successful_venues.add(cfg.venue_name)
             result.shifts.extend(shifts)
         except LayoutShift as exc:
             log.error("LAYOUT_SHIFT %s", exc)
@@ -917,6 +919,12 @@ def run_pipeline(client: WordPressClient, mode: str, dry_run: bool = False) -> i
         for post in client.iter_all_posts():
             acf = post.get(WP_FIELD_KEY) or {}
             if parse_date(acf.get(F_DATE)) != today or post.get("status") != "publish":
+                continue
+            post_venue = acf.get(F_VENUE, "")
+            # Only draft a "vanished" post if its venue scraped successfully
+            # this run. Without this guard, a Gemini 429 or a single venue
+            # outage drafts the entire venue's lineup. (Fix for Task #32.)
+            if post_venue not in scrape.successful_venues:
                 continue
             if post.get("slug") not in scraped_slugs:
                 if dry_run:
