@@ -3,17 +3,20 @@ Bars on Broadway — daily Instagram + Facebook poster.
 
 Runs from GitHub Actions after the 10am Central scrape.
 Pulls the current live_lineup from barsonbroadway.com, generates a branded
-square image with day-of-week layout + background variation, commits it to
-the repo so raw.githubusercontent can serve it, then publishes to Instagram
-and (if pages_manage_posts is granted) to the Facebook Page.
+square image with day-of-week layout + background variation, uploads it to
+the WordPress Media Library (which gives us a public URL Meta can fetch),
+then publishes to Instagram and (if pages_manage_posts is granted) to the
+Facebook Page.
 
 Required environment variables:
-    META_IG_USER_ID            Instagram Business Account ID
-    META_PAGE_ACCESS_TOKEN     Long-lived Facebook Page Access Token
+    META_IG_USER_ID         Instagram Business Account ID
+    META_PAGE_ACCESS_TOKEN  Long-lived Facebook Page Access Token
+    WP_USERNAME             WordPress user with media upload rights
+    WP_APP_PASSWORD         That user's WordPress Application Password
 
 Optional:
-    META_FB_PAGE_ID            Facebook Page ID. If set, also posts to FB Page
-                               (requires pages_manage_posts scope on the token).
+    META_FB_PAGE_ID         Facebook Page ID. If set, also posts to FB Page
+                            (requires pages_manage_posts scope on the token).
 
 Optional photo backgrounds:
     Drop JPGs into daily_posts/backgrounds/day_0.jpg through day_6.jpg
@@ -52,13 +55,13 @@ RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
 CANVAS = 1080  # square output
 
 # Brand palette
-BG = (11, 10, 13)        # #0B0A0D
-PINK = (255, 31, 142)    # #FF1F8E
-CREAM = (244, 231, 206)  # #F4E7CE
-TEAL = (45, 212, 191)    # #2DD4BF
-BODY = (201, 194, 214)   # #C9C2D6
-PURPLE = (88, 28, 135)   # accent
-ORANGE = (251, 146, 60)  # accent
+BG = (11, 10, 13)          # #0B0A0D
+PINK = (255, 31, 142)      # #FF1F8E
+CREAM = (244, 231, 206)    # #F4E7CE
+TEAL = (45, 212, 191)      # #2DD4BF
+BODY = (201, 194, 214)     # #C9C2D6
+PURPLE = (88, 28, 135)     # accent
+ORANGE = (251, 146, 60)    # accent
 
 # ---------------------------------------------------------------------------
 # Secrets
@@ -68,13 +71,10 @@ IG_USER_ID = os.environ["META_IG_USER_ID"]
 TOKEN = os.environ["META_PAGE_ACCESS_TOKEN"]
 FB_PAGE_ID = os.environ.get("META_FB_PAGE_ID")
 
-
 # ---------------------------------------------------------------------------
 # Lineup fetch
 # ---------------------------------------------------------------------------
 
-
-# Match slug format: {venue-slug}-{YYYY}-{MM}-{DD}-{HH}-{MM}-{stage}
 _SHOW_DATE_RE = re.compile(r"-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-")
 
 
@@ -92,12 +92,7 @@ def _parse_show_datetime(slug: str) -> _dt.datetime | None:
 
 
 def fetch_lineup(target_date: _dt.date) -> dict[str, list[str]]:
-    """Return {venue_name: [band_names]} for shows happening on target_date.
-
-    Reads slug to extract show date (slug format includes YYYY-MM-DD-HH-MM).
-    Bands are ordered by show time within each venue.
-    """
-    # collect (venue, band, show_time) then group by venue
+    """Return {venue_name: [band_names]} for shows happening on target_date."""
     shows: list[tuple[str, str, _dt.datetime]] = []
     page = 1
     while True:
@@ -117,7 +112,6 @@ def fetch_lineup(target_date: _dt.date) -> dict[str, list[str]]:
             show_dt = _parse_show_datetime(slug)
             if not show_dt or show_dt.date() != target_date:
                 continue
-            # WP REST returns HTML-encoded titles
             title = html.unescape(post["title"]["rendered"]).strip()
             for sep in (" - ", " – ", " — "):
                 if sep in title:
@@ -131,7 +125,6 @@ def fetch_lineup(target_date: _dt.date) -> dict[str, list[str]]:
             break
         page += 1
 
-    # group by venue, sort each venue by show time, dedupe band names
     by_venue: dict[str, list[str]] = defaultdict(list)
     shows.sort(key=lambda x: x[2])
     for venue, band, _ in shows:
@@ -143,7 +136,6 @@ def fetch_lineup(target_date: _dt.date) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 # Fonts
 # ---------------------------------------------------------------------------
-
 
 def _find_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     bold_paths = [
@@ -165,7 +157,6 @@ def _find_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 # ---------------------------------------------------------------------------
 # Backgrounds — 7 per week, photo if available, gradient fallback
 # ---------------------------------------------------------------------------
-
 
 def _vertical_gradient(top: tuple, bottom: tuple) -> Image.Image:
     img = Image.new("RGB", (CANVAS, CANVAS), top)
@@ -201,21 +192,18 @@ def _radial_gradient(center: tuple, edge: tuple) -> Image.Image:
 
 
 def _bands_pattern(c1: tuple, c2: tuple) -> Image.Image:
-    """Diagonal neon-stripe pattern, darkened."""
     img = Image.new("RGB", (CANVAS, CANVAS), BG)
     d = ImageDraw.Draw(img)
     spacing = 80
     for i in range(-CANVAS, CANVAS * 2, spacing):
         d.line([(i, 0), (i + CANVAS, CANVAS)], fill=c1, width=4)
         d.line([(i + 40, 0), (i + 40 + CANVAS, CANVAS)], fill=c2, width=2)
-    # darken
     overlay = Image.new("RGB", (CANVAS, CANVAS), (0, 0, 0))
     img = Image.blend(img, overlay, 0.78)
     return img
 
 
 def _glow_corner(corner_color: tuple) -> Image.Image:
-    """Dark background with a soft color glow in the top-left corner."""
     img = Image.new("RGB", (CANVAS, CANVAS), BG)
     d = ImageDraw.Draw(img)
     for r in range(800, 0, -10):
@@ -227,7 +215,6 @@ def _glow_corner(corner_color: tuple) -> Image.Image:
 
 
 def _twin_glow() -> Image.Image:
-    """Two glows in opposite corners — pink top-right, teal bottom-left."""
     img = Image.new("RGB", (CANVAS, CANVAS), BG)
     d = ImageDraw.Draw(img)
     for r in range(700, 0, -10):
@@ -243,44 +230,27 @@ def _twin_glow() -> Image.Image:
 
 
 def get_background(weekday: int) -> Image.Image:
-    """Return a 1080×1080 background image for today.
-
-    If a photo exists at daily_posts/backgrounds/day_{N}.jpg, it's used
-    (resized + darkened). Otherwise, falls back to a procedural gradient
-    keyed to the day of week.
-    """
     photo_path = BG_DIR / f"day_{weekday}.jpg"
     if photo_path.exists():
         img = Image.open(photo_path).convert("RGB")
-        # cover-fit to 1080×1080
         w, h = img.size
         scale = max(CANVAS / w, CANVAS / h)
         new = (int(w * scale), int(h * scale))
         img = img.resize(new, Image.LANCZOS)
-        # center crop
         left = (img.size[0] - CANVAS) // 2
         top = (img.size[1] - CANVAS) // 2
         img = img.crop((left, top, left + CANVAS, top + CANVAS))
-        # darken for text legibility
         overlay = Image.new("RGB", (CANVAS, CANVAS), (0, 0, 0))
         img = Image.blend(img, overlay, 0.62)
         return img
 
-    # Procedural fallback — one per weekday
     gradients = [
-        # Monday — twin glow (pink + teal corners)
         _twin_glow,
-        # Tuesday — pink vertical gradient
         lambda: _vertical_gradient((92, 0, 50), BG),
-        # Wednesday — teal radial
         lambda: _radial_gradient((15, 60, 55), BG),
-        # Thursday — diagonal neon stripes
         lambda: _bands_pattern(PINK, TEAL),
-        # Friday — bold pink glow corner
         lambda: _glow_corner(PINK),
-        # Saturday — purple-to-black diagonal
         lambda: _diagonal_gradient(PURPLE, BG),
-        # Sunday — orange glow corner
         lambda: _glow_corner(ORANGE),
     ]
     return gradients[weekday]()
@@ -290,16 +260,13 @@ def get_background(weekday: int) -> Image.Image:
 # Layout functions — 3 styles, rotated by weekday
 # ---------------------------------------------------------------------------
 
-
 def _draw_text_with_shadow(draw, xy, text, font, fill, shadow=(0, 0, 0), offset=2):
-    """Draw text with a subtle drop shadow for legibility on any background."""
     sx, sy = xy[0] + offset, xy[1] + offset
     draw.text((sx, sy), text, font=font, fill=shadow)
     draw.text(xy, text, font=font, fill=fill)
 
 
 def _layout_poster(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Image:
-    """Layout A — Classic poster. Text-heavy list, full venue showcase."""
     img = bg.copy()
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, 14, CANVAS], fill=PINK)
@@ -329,32 +296,26 @@ def _layout_poster(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Im
 
 
 def _layout_hero(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Image:
-    """Layout B — Hero. Big top-center headline, 3 featured venues large."""
     img = bg.copy()
     d = ImageDraw.Draw(img)
 
-    # Top half — big headline
     date_str = today.strftime("%A").upper()
     head_font = _find_font(110, bold=True)
     sub_font = _find_font(34)
-    # date pill at top
     pill_font = _find_font(26, bold=True)
     pill_w = 380
-    d.rectangle([(CANVAS - pill_w) // 2, 48, (CANVAS + pill_w) // 2, 96],
-                fill=PINK)
+    d.rectangle([(CANVAS - pill_w) // 2, 48, (CANVAS + pill_w) // 2, 96], fill=PINK)
     d.text((CANVAS // 2, 72), date_str + " ON BROADWAY",
            font=pill_font, fill=(11, 10, 13), anchor="mm")
 
     _draw_text_with_shadow(d, (CANVAS // 2, 200), "TONIGHT",
                            head_font, PINK, offset=3)
-    # center-anchor isn't supported in old PIL; recalc manually
     bbox = d.textbbox((0, 0), "TONIGHT", font=head_font)
     tw = bbox[2] - bbox[0]
     img_copy = bg.copy()
     d = ImageDraw.Draw(img_copy)
     d.rectangle([0, 0, 14, CANVAS], fill=PINK)
-    d.rectangle([(CANVAS - pill_w) // 2, 48, (CANVAS + pill_w) // 2, 96],
-                fill=PINK)
+    d.rectangle([(CANVAS - pill_w) // 2, 48, (CANVAS + pill_w) // 2, 96], fill=PINK)
     tx = (CANVAS - tw) // 2
     d.text(((CANVAS - 380) // 2 + 10, 60), date_str + " ON BROADWAY",
            font=pill_font, fill=(11, 10, 13))
@@ -365,7 +326,6 @@ def _layout_hero(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Imag
     sw = sbox[2] - sbox[0]
     _draw_text_with_shadow(d, ((CANVAS - sw) // 2, 300), sub, sub_font, CREAM)
 
-    # 3 featured venues — centered, larger
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
     featured = populated[:3]
@@ -392,24 +352,19 @@ def _layout_hero(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Imag
 
 
 def _layout_split(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Image:
-    """Layout C — Split. Background image top half, lineup list bottom half on dark."""
     img = Image.new("RGB", (CANVAS, CANVAS), BG)
-    # paste bg into top half
     top = bg.crop((0, 0, CANVAS, CANVAS // 2))
     img.paste(top, (0, 0))
     d = ImageDraw.Draw(img)
 
-    # Pink divider between halves
     d.rectangle([0, CANVAS // 2 - 4, CANVAS, CANVAS // 2 + 4], fill=PINK)
 
-    # Top half overlay text
     date_str = today.strftime("%A, %B %d").upper().replace(" 0", " ")
     _draw_text_with_shadow(d, (54, 54), date_str, _find_font(28), BODY)
     _draw_text_with_shadow(d, (54, 100), "LOWER", _find_font(110, bold=True), CREAM)
     _draw_text_with_shadow(d, (54, 220), "BROADWAY", _find_font(110, bold=True), PINK)
     _draw_text_with_shadow(d, (54, 380), "TONIGHT", _find_font(60, bold=True), TEAL)
 
-    # Bottom half — lineup list on dark
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
     y = CANVAS // 2 + 40
@@ -435,11 +390,9 @@ LAYOUTS = [_layout_poster, _layout_hero, _layout_split]
 
 
 def generate_image(by_venue: dict, out_path: Path) -> Path:
-    """Generate today's post image, rotating layout + background by weekday."""
     today = _dt.date.today()
-    weekday = today.weekday()  # Monday=0
+    weekday = today.weekday()
     bg = get_background(weekday)
-    # Rotate through 3 layouts: weekday mod 3
     layout_fn = LAYOUTS[weekday % 3]
     img = layout_fn(bg, by_venue, today)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -450,7 +403,6 @@ def generate_image(by_venue: dict, out_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Caption
 # ---------------------------------------------------------------------------
-
 
 HASHTAGS = [
     "#nashville", "#lowerbroadway", "#broadwaynashville", "#honkytonk",
@@ -482,9 +434,8 @@ def build_caption(by_venue: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Git commit
+# Git commit (still done so images are backed up in repo for audit trail)
 # ---------------------------------------------------------------------------
-
 
 def commit_and_push(image_path: Path) -> None:
     subprocess.run(["git", "config", "user.email", "bot@barsonbroadway.com"], check=True)
@@ -502,39 +453,56 @@ def commit_and_push(image_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Posting
+# WordPress media upload
 # ---------------------------------------------------------------------------
 
+def upload_to_wordpress(image_path: Path) -> str:
+    """Upload the daily image to WP Media Library and return the public URL.
 
-def wait_for_raw_image(image_url: str, max_wait: int = 180) -> bool:
-    """Poll the raw URL until GitHub serves it as a real image.
-
-    Meta's media fetcher (IG + FB Pages) rejects URLs that 404 or that return
-    a non-image Content-Type, and raw.githubusercontent.com can lag a fresh
-    commit by 30-90s while the CDN warms. We HEAD the URL with exponential
-    backoff and only return True once status==200 and content-type starts with
-    'image/'. Returns False if the deadline passes; caller decides whether to
-    attempt the post anyway.
+    Replaces the previous raw.githubusercontent.com URL strategy, which
+    failed because the repo is private — Meta's unauthenticated fetcher
+    got 404 and returned error 2207052 ("media URI doesn't meet our
+    requirements"). Hosting on WordPress gives us a permanent public URL
+    on our own domain that Meta can always reach.
     """
-    deadline = time.time() + max_wait
-    delay = 5
-    last_err = None
-    while time.time() < deadline:
-        try:
-            r = requests.head(image_url, timeout=15, allow_redirects=True)
-            ct = r.headers.get("Content-Type", "")
-            if r.status_code == 200 and ct.lower().startswith("image/"):
-                print(f"Raw URL ready ({ct}, {r.headers.get('Content-Length','?')} bytes): {image_url}")
-                return True
-            last_err = f"status={r.status_code} content-type={ct!r}"
-        except Exception as e:
-            last_err = repr(e)
-        print(f"  raw not ready yet ({last_err}); sleeping {delay}s")
-        time.sleep(delay)
-        delay = min(int(delay * 1.6), 30)
-    print(f"WARNING: raw URL never confirmed image/* within {max_wait}s ({last_err})")
-    return False
+    wp_user = os.environ.get("WP_USERNAME")
+    wp_pass = os.environ.get("WP_APP_PASSWORD")
+    if not wp_user or not wp_pass:
+        raise RuntimeError(
+            "WP_USERNAME and WP_APP_PASSWORD env vars required. Add them "
+            "to the Daily Instagram + FB post step in lineup_sync.yml."
+        )
 
+    filename = image_path.name
+    with open(image_path, "rb") as f:
+        data = f.read()
+
+    print(f"Uploading {filename} ({len(data)} bytes) to WordPress media library...")
+    r = requests.post(
+        f"{WP_BASE}/media",
+        auth=(wp_user, wp_pass),
+        headers={
+            "Content-Type": "image/jpeg",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+        data=data,
+        timeout=60,
+    )
+    if r.status_code not in (200, 201):
+        print(f"WP upload failed: {r.status_code} {r.text[:500]}")
+        sys.exit(1)
+    j = r.json()
+    url = j.get("source_url") or j.get("guid", {}).get("rendered")
+    if not url:
+        print(f"WP upload response missing source_url: {j}")
+        sys.exit(1)
+    print(f"Uploaded to: {url}")
+    return url
+
+
+# ---------------------------------------------------------------------------
+# Posting
+# ---------------------------------------------------------------------------
 
 def post_to_instagram(image_url: str, caption: str) -> str:
     print(f"Creating IG media container from: {image_url}")
@@ -573,7 +541,7 @@ def post_to_facebook_page(image_url: str, caption: str) -> str | None:
             "url": image_url,
             "caption": caption,
             "access_token": TOKEN,
-            "published": "true",  # publish immediately to the Page feed
+            "published": "true",
         },
         timeout=60,
     )
@@ -588,7 +556,6 @@ def post_to_facebook_page(image_url: str, caption: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-
 
 def main() -> None:
     today = _dt.date.today()
@@ -607,14 +574,13 @@ def main() -> None:
     generate_image(by_venue, image_path)
     print(f"Image generated: {image_path}")
 
+    # Commit to repo for backup/audit (images accumulate in daily_posts/).
     commit_and_push(image_path)
 
-    # NOTE: Meta's Graph API media fetcher (error 2207052) is finicky about
-    # query parameters - the previous "?t=<timestamp>" cache buster caused
-    # every post to fail. Use a clean URL and poll until raw.githubusercontent
-    # actually serves the file as image/jpeg before calling Meta.
-    image_url = f"{RAW_BASE}/{image_path.as_posix()}"
-    wait_for_raw_image(image_url, max_wait=180)
+    # Upload to WordPress Media Library and use THAT URL for Meta.
+    # The old raw.githubusercontent.com URL approach failed because the
+    # repo is private and Meta's fetcher gets 404 -> error 2207052.
+    image_url = upload_to_wordpress(image_path)
 
     caption = build_caption(by_venue)
     print("\nCaption preview:\n" + caption + "\n")
