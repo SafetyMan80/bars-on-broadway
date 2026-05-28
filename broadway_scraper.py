@@ -26,7 +26,7 @@ V2 CHANGES (May 2026)
 3. ALWAYS_OPEN venues: 21 of the 37 bars are open nightly with live country
    music regardless of any published calendar. If a scrape finds nothing for
    "tonight" at one of these venues, we synthesize a single fallback entry
-   (performer_name = "Live country music", start = 10:00, stage = "Main").
+   (performer_name="Live music", start="", end="", stage="Main Stage") - times left empty so display shows "check venue for tonight's start time".
 
 HOW IT WORKS
 ------------
@@ -89,9 +89,9 @@ F_END = "shift_end_time"
 F_PERFORMER = "performer_name"
 F_STAGE = "stage_floor"
 
-DEFAULT_PERFORMER = "Live country music"
+DEFAULT_PERFORMER = "Live music"
 DEFAULT_STAGE = "Main Stage"
-FALLBACK_START_TIME = "10:00"  # Broadway bars open at 10 AM
+# FALLBACK_START_TIME removed - fallback entries no longer fabricate times.
 
 PURGE_MODE = os.environ.get("PURGE_MODE", "trash").lower()
 
@@ -239,7 +239,7 @@ def build_shift(venue_name, date_raw, start_raw, end_raw, performer_raw, stage_r
     if not date_iso:
         problems.append(f"unparseable date: {date_raw!r}")
     start = parse_time(start_raw)
-    if not start:
+    if start_raw and not start:
         problems.append(f"missing/invalid start time: {start_raw!r}")
     end = parse_time(end_raw)
     if end_raw and not end:
@@ -442,7 +442,7 @@ class LLMExtractor:
                 "- performer_name: band/DJ name OR event title OR theme label.\n"
                 '  Examples: "The Don Kelley Band", "DJ Night", "Industry Monday",\n'
                 '  "Sunday Brunch", "Karaoke Night", "Predators Watch Party".\n'
-                '  If a slot has nothing specific, use "Live country music".\n'
+                '  If a slot has nothing specific, use "Live music".\n'
                 "- stage_floor: stage/floor/room name, or extra qualifier like\n"
                 '  "Cover $10", "21+ only", "Free entry", "Rooftop". "" if none.\n'
             )
@@ -636,7 +636,7 @@ VENUES = [
     # TIER 3 (NEW): venues that don't publish dedicated calendars.
     # We scrape their homepage in "events" mode to catch any specials,
     # themed nights, watch parties, etc. If nothing is found, the
-    # always_open=True flag triggers a "Live country music nightly" fallback
+    # always_open=True flag triggers a "Live music nightly" fallback
     # so the venue still appears on /schedule/.
     # ========================================================================
     VenueConfig("Tootsie's Orchid Lounge",
@@ -694,13 +694,13 @@ class ScrapeResult:
     successful_venues: set = field(default_factory=set)
 
 def make_fallback_shift(venue_name, target_date, source_url=""):
-    """Synthesize a 'Live country music nightly' entry for a venue that
+    """Synthesize a 'Live music nightly' entry for a venue that
     scraped empty but is known to be open every night."""
     shift, _ = build_shift(
         venue_name=venue_name,
         date_raw=target_date,
-        start_raw=FALLBACK_START_TIME,
-        end_raw="03:00",
+        start_raw="",  # no fabricated start time
+        end_raw="",  # no fabricated end time
         performer_raw=DEFAULT_PERFORMER,
         stage_raw=DEFAULT_STAGE,
         source_url=source_url,
@@ -735,7 +735,7 @@ def scrape_all_venues():
             result.errors += 1
 
         # Fallback: if this venue is always open and we didn't get a shift
-        # for TODAY, add a generic "Live country music nightly" entry so the
+        # for TODAY, add a generic "Live music nightly" entry so the
         # venue still appears on /schedule/.
         if cfg.always_open and not venue_had_shifts:
             fallback = make_fallback_shift(cfg.venue_name, today, cfg.calendar_url)
