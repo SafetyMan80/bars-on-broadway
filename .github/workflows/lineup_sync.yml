@@ -7,6 +7,7 @@
 #   AI_API_KEY               - free Gemini API key from aistudio.google.com
 #   META_IG_USER_ID          - Instagram Business Account ID
 #   META_PAGE_ACCESS_TOKEN   - long-lived Page Access Token from Meta Graph API
+#   META_FB_PAGE_ID          - Facebook Page ID (optional, enables FB Page posts)
 #
 # GitHub Actions cron runs in UTC and does NOT observe daylight saving.
 # 0 15 UTC = 10:00 AM Central and 0 21 UTC = 4:00 PM Central while Central
@@ -18,51 +19,60 @@ name: Bars on Broadway - AI Lineup Sync
 
 on:
   schedule:
-    - cron: '0 15 * * *'   # ~10:00 AM Central - morning sweep
-    - cron: '0 21 * * *'   # ~4:00 PM Central - evening delta
-  workflow_dispatch:        # manual "Run workflow" button in the Actions tab
+      - cron: '0 15 * * *'   # ~10:00 AM Central - morning sweep
+          - cron: '0 21 * * *'   # ~4:00 PM Central - evening delta
+            workflow_dispatch:       # manual "Run workflow" button in the Actions tab
 
-permissions:
-  contents: write           # so the daily-post step can commit the generated image
+            permissions:
+              contents: write          # so the daily-post step can commit the generated image
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+              jobs:
+                build:
+                    runs-on: ubuntu-latest
+                        steps:
+                              - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+                                    - name: Set up Python
+                                            uses: actions/setup-python@v5
+                                                    with:
+                                                              python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install Pillow
+                                                                    - name: Install dependencies
+                                                                            run: |
+                                                                                      pip install -r requirements.txt
+                                                                                                pip install Pillow
 
-      # Post FIRST (uses current data on the WP site, doesn't depend on
-      # this run's scraper). Runs only on the 10am Central run or manual
-      # trigger. The 4pm run skips posting so we never post twice in one day.
-      - name: Daily Instagram + FB post
-        if: github.event.schedule == '0 15 * * *' || github.event_name == 'workflow_dispatch'
-        env:
-          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
-          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
-          META_FB_PAGE_ID: ${{ secrets.META_FB_PAGE_ID }}
-        run: python social_poster.py
-
-      # Downloads the Chromium binary Playwright needs to render the
-      # JavaScript-built calendars (The Stage on Broadway, Legends Corner).
-      - name: Install Playwright browser
-        run: playwright install --with-deps chromium
-
-      # Scraper runs LAST so it refreshes data for tomorrow. If it fails or
-      # hangs, today's post has already gone out.
-      - name: Run scraper
-        continue-on-error: true
-        env:
-          WP_USERNAME: ${{ secrets.WP_USERNAME }}
-          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
-        run: python broadway_scraper.py
+                                                                                                      # Post FIRST (uses current data on the WP site, doesn't depend on
+                                                                                                            # this run's scraper). Runs only on the 10am Central run or manual
+                                                                                                                  # trigger. The 4pm run skips posting so we never post twice in one day.
+                                                                                                                        #
+                                                                                                                              # WP_USERNAME / WP_APP_PASSWORD are needed because social_poster.py
+                                                                                                                                    # uploads the daily image to the WordPress Media Library and uses
+                                                                                                                                          # that public URL when calling Meta. The previous design used
+                                                                                                                                                # raw.githubusercontent.com URLs which 404 to Meta because the repo
+                                                                                                                                                      # is private (error 2207052).
+                                                                                                                                                            - name: Daily Instagram + FB post
+                                                                                                                                                                    if: github.event.schedule == '0 15 * * *' || github.event_name == 'workflow_dispatch'
+                                                                                                                                                                            env:
+                                                                                                                                                                                      META_IG_USER_ID:        ${{ secrets.META_IG_USER_ID }}
+                                                                                                                                                                                                META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+                                                                                                                                                                                                          META_FB_PAGE_ID:        ${{ secrets.META_FB_PAGE_ID }}
+                                                                                                                                                                                                                    WP_USERNAME:            ${{ secrets.WP_USERNAME }}
+                                                                                                                                                                                                                              WP_APP_PASSWORD:        ${{ secrets.WP_APP_PASSWORD }}
+                                                                                                                                                                                                                                      run: python social_poster.py
+                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            # Downloads the Chromium binary Playwright needs to render the
+                                                                                                                                                                                                                                                  # JavaScript-built calendars (The Stage on Broadway, Legends Corner).
+                                                                                                                                                                                                                                                        - name: Install Playwright browser
+                                                                                                                                                                                                                                                                run: playwright install --with-deps chromium
+                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                      # Scraper runs LAST so it refreshes data for tomorrow. If it fails or
+                                                                                                                                                                                                                                                                            # hangs, today's post has already gone out.
+                                                                                                                                                                                                                                                                                  - name: Run scraper
+                                                                                                                                                                                                                                                                                          continue-on-error: true
+                                                                                                                                                                                                                                                                                                  env:
+                                                                                                                                                                                                                                                                                                            WP_USERNAME:    ${{ secrets.WP_USERNAME }}
+                                                                                                                                                                                                                                                                                                                      WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+                                                                                                                                                                                                                                                                                                                                AI_API_KEY:     ${{ secrets.AI_API_KEY }}
+                                                                                                                                                                                                                                                                                                                                        run: python broadway_scraper.py
+                                                                                                                                                                                                                                                                                                                                        
