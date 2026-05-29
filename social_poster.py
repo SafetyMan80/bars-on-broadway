@@ -278,14 +278,14 @@ def _layout_poster(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Im
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
     y = 326
-    venue_font = _find_font(36, bold=True)
-    band_font = _find_font(28)
-    for venue, bands in populated[:6]:
+    venue_font = _find_font(30, bold=True)
+    band_font = _find_font(24)
+    for venue, bands in populated[:10]:
         if y > CANVAS - 180:
             break
         _draw_text_with_shadow(d, (54, y), venue.upper(), venue_font, TEAL)
         y += 46
-        for band in bands[:2]:
+        for band in bands[:1]:
             _draw_text_with_shadow(d, (76, y), f"+ {band}", band_font, CREAM)
             y += 34
         y += 18
@@ -328,22 +328,22 @@ def _layout_hero(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Imag
 
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
-    featured = populated[:3]
-    y = 420
-    v_font = _find_font(42, bold=True)
-    b_font = _find_font(28)
+    featured = populated[:8]
+    y = 360
+    v_font = _find_font(32, bold=True)
+    b_font = _find_font(22)
     for venue, bands in featured:
         vbox = d.textbbox((0, 0), venue.upper(), font=v_font)
         vw = vbox[2] - vbox[0]
         _draw_text_with_shadow(d, ((CANVAS - vw) // 2, y), venue.upper(),
                                v_font, TEAL)
-        y += 54
+        y += 40
         if bands:
             bn = bands[0]
             bbox = d.textbbox((0, 0), bn, font=b_font)
             bw = bbox[2] - bbox[0]
             _draw_text_with_shadow(d, ((CANVAS - bw) // 2, y), bn, b_font, CREAM)
-            y += 56
+            y += 36
 
     footer_font = _find_font(24)
     _draw_text_with_shadow(d, (54, CANVAS - 72), "barsonbroadway.com",
@@ -368,17 +368,17 @@ def _layout_split(bg: Image.Image, by_venue: dict, today: _dt.date) -> Image.Ima
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
     y = CANVAS // 2 + 40
-    v_font = _find_font(32, bold=True)
-    b_font = _find_font(26)
-    for venue, bands in populated[:5]:
+    v_font = _find_font(26, bold=True)
+    b_font = _find_font(22)
+    for venue, bands in populated[:10]:
         if y > CANVAS - 120:
             break
         _draw_text_with_shadow(d, (54, y), venue.upper(), v_font, TEAL)
-        y += 40
+        y += 32
         if bands:
             _draw_text_with_shadow(d, (76, y), f"+ {bands[0]}", b_font, CREAM)
-            y += 36
-        y += 8
+            y += 28
+        y += 4
 
     footer_font = _find_font(22)
     _draw_text_with_shadow(d, (54, CANVAS - 56), "barsonbroadway.com",
@@ -419,7 +419,7 @@ def build_caption(by_venue: dict) -> str:
 
     populated = [(v, b) for v, b in by_venue.items() if b]
     random.shuffle(populated)
-    featured = populated[:5]
+    featured = populated[:8]
 
     lines = [f"Lower Broadway tonight. {weekday}, {month_day}.", ""]
     for venue, bands in featured:
