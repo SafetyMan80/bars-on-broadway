@@ -1,0 +1,43 @@
+# One-off manual promo post for the new interactive walking map.
+# Runs ONLY when manually triggered from the Actions tab.
+# Does NOT affect the daily lineup_sync schedule.
+#
+# Required repository secrets (reuses the ones already set up for the daily poster):
+#   WP_USERNAME              - WordPress user with media upload permissions
+#   WP_APP_PASSWORD          - WordPress Application Password
+#   META_IG_USER_ID          - Instagram Business Account ID
+#   META_PAGE_ACCESS_TOKEN   - long-lived Page Access Token
+#   META_FB_PAGE_ID          - Facebook Page ID
+
+name: Manual Promo Post - Walking Map
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests Pillow
+
+      - name: Post walking map promo to IG + FB
+        env:
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
+          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+          META_FB_PAGE_ID: ${{ secrets.META_FB_PAGE_ID }}
+        run: python post_map_promo.py
