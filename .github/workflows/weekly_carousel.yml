@@ -1,0 +1,93 @@
+# Weekly Broadway Carousel Poster
+#
+# Two trigger paths:
+#   1. workflow_dispatch — always available. Jonathan clicks "Run workflow"
+#      in GitHub Actions when he wants to post a carousel.
+#   2. schedule (cron) — Mondays at 6am Central (12:00 UTC). Disabled by
+#      default. To enable fully-automated weekly posting, set the repo
+#      variable CAROUSEL_AUTO=true in Settings → Secrets and variables →
+#      Actions → Variables.
+#
+# This pattern lets us ship the workflow now in manual-only mode and
+# flip the cron on later by setting one variable, without touching code.
+#
+# Use DRY_RUN=true on the manual dispatch to generate preview images
+# without posting (uploaded as workflow artifacts you can review).
+#
+# Required repo secrets (reused from the daily lineup_sync workflow):
+#   WP_USERNAME, WP_APP_PASSWORD, META_IG_USER_ID,
+#   META_PAGE_ACCESS_TOKEN, META_FB_PAGE_ID
+
+name: Weekly Broadway Carousel
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Generate preview only, do not post'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  schedule:
+    # 12:00 UTC Mondays = 7am CDT / 6am CST. The job will short-circuit
+    # if CAROUSEL_AUTO is not set to "true".
+    - cron: '0 12 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  carousel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether to run (cron triggers need opt-in)
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "reason=manual dispatch" >> $GITHUB_OUTPUT
+          elif [ "${{ vars.CAROUSEL_AUTO }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "reason=CAROUSEL_AUTO variable enabled" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "reason=cron fired but CAROUSEL_AUTO not set" >> $GITHUB_OUTPUT
+            echo "::notice::Skipping. Set repo variable CAROUSEL_AUTO=true to enable weekly auto-posting."
+          fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests Pillow
+
+      - name: Run carousel poster
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
+          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+          META_FB_PAGE_ID: ${{ secrets.META_FB_PAGE_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
+        run: python post_weekly_carousel.py
+
+      - name: Upload preview artifacts
+        if: steps.gate.outputs.should_run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carousel-preview-${{ github.run_id }}
+          path: pending_carousel/
+          if-no-files-found: ignore
+          retention-days: 14
