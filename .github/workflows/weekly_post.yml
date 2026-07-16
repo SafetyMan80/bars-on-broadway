@@ -1,0 +1,49 @@
+# Bars on Broadway - weekly SEO + monetization post (site_enhancers.py).
+# Lives at: .github/workflows/weekly_post.yml
+#
+# Runs site_enhancers.py, which reads the live_lineup posts the daily
+# scraper already maintains and publishes ONE "This Weekend on Broadway"
+# post with MusicEvent JSON-LD and (when the AFF_ secrets exist) affiliate
+# links. Reuses the same WP_* secrets as lineup_sync.yml.
+#
+# Required repository secrets (already set for the scraper):
+#   WP_USERNAME       - WordPress user
+#   WP_APP_PASSWORD   - WordPress Application Password
+# Optional (activate affiliate links when accounts exist):
+#   AFF_EXPEDIA_AFFCID
+#   AFF_VIATOR_PID
+
+name: Bars on Broadway - Weekly Roundup Post
+
+on:
+  schedule:
+    # Thursday 14:00 UTC = 9:00 AM Central (CDT). Weekend post goes up
+    # a couple days before Friday so it can index before the weekend.
+    - cron: '0 14 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  weekly-post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Publish weekend roundup
+        env:
+          WP_BASE_URL: https://barsonbroadway.com
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          AFF_EXPEDIA_AFFCID: ${{ secrets.AFF_EXPEDIA_AFFCID }}
+          AFF_VIATOR_PID: ${{ secrets.AFF_VIATOR_PID }}
+        run: python site_enhancers.py
