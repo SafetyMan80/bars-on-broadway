@@ -29,6 +29,11 @@ AFF_EXPEDIA = os.environ.get("AFF_EXPEDIA_AFFCID", "").strip()
 AFF_VIATOR = os.environ.get("AFF_VIATOR_PID", "").strip()
 
 SITE = "https://barsonbroadway.com"
+# CJ Deep Link Automation (website 101764714). Placed in post HTML, it
+# auto-converts any plain link to a joined CJ advertiser (Expedia, Hotels.com,
+# Booking, etc.) into a tracked, commission-earning link at click time.
+CJ_SCRIPT = ('<script src="https://www.anrdoezrs.net/am/101764714'
+             '/include/allCj/impressions/page/am.js"></' + 'script>')
 CPT = "live_lineup"
 F_VENUE, F_DATE = "venue_name", "lineup_date"
 F_START, F_PERFORMER, F_STAGE = "shift_start_time", "performer_name", "stage_floor"
@@ -151,18 +156,14 @@ def build_jsonld(days, by_day):
 
 
 def aff_links(venue):
-    bits = []
-    if AFF_EXPEDIA and venue in VENUE_GEO:
-        lat, lng = VENUE_GEO[venue]
-        bits.append(f'<a href="https://www.expedia.com/Hotel-Search?latLong='
-                    f'{lat},{lng}&affcid={AFF_EXPEDIA}" rel="sponsored '
-                    f'nofollow" target="_blank">hotels nearby</a>')
-    if AFF_VIATOR:
-        bits.append(f'<a href="https://www.viator.com/Nashville/d799-ttd?'
-                    f'pid={AFF_VIATOR}&medium=link" rel="sponsored nofollow" '
-                    f'target="_blank">bar crawls &amp; tours</a>')
-    return (" &middot; " + " &middot; ".join(bits)) if bits else ""
-
+    # Plain Expedia (a joined CJ advertiser) Nashville hotel search near the
+    # venue. CJ_SCRIPT on the page converts it to a tracked link on click, so
+    # no per-link IDs or secrets are needed.
+    lat, lng = VENUE_GEO.get(venue, (36.1612, -86.7775))
+    url = ("https://www.expedia.com/Hotel-Search?destination=Nashville%2C%20TN"
+           f"&latLong={lat}%2C{lng}")
+    return (f' &middot; <a href="{url}" target="_blank" '
+            f'rel="nofollow sponsored">hotels nearby</a>')
 
 def build_post(days, by_day):
     label = f"{days[0].strftime('%B %-d')}-{days[-1].strftime('%-d, %Y')}"
@@ -195,7 +196,7 @@ def build_post(days, by_day):
              f"every set we track across 37 honky-tonks for {label}. "
              f"Lineups shift daily - the <a href='{SITE}/schedule/'>live "
              f"schedule</a> always has tonight's latest.</p>")
-    html = intro + "".join(sections) + build_jsonld(days, by_day)
+    html = intro + "".join(sections) + build_jsonld(days, by_day) + CJ_SCRIPT
     return {
         "title": f"Who's Playing on Broadway This Weekend ({label})",
         "slug": f"broadway-this-weekend-{days[0].isoformat()}",
